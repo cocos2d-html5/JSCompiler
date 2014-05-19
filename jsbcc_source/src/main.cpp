@@ -92,6 +92,8 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
     // Removed in Firefox v27
     //JS_SetOptions(cx, JSOPTION_TYPE_INFERENCE);
     JS::ContextOptionsRef(cx).setTypeInference(true);
+    JS::ContextOptionsRef(cx).setIon(true);
+    JS::ContextOptionsRef(cx).setBaseline(true);
     
     JS::CompartmentOptions options;
     options.setVersion(JSVERSION_LATEST);
