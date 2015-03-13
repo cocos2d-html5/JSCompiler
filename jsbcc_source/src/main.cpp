@@ -46,8 +46,9 @@ void ReportError(JSContext *cx, const char *message, JSErrorReport *report) {
 JSClass GlobalClass = {
     "global", JSCLASS_GLOBAL_FLAGS,
     JS_PropertyStub, JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
-    JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub, Finalize,
-    JSCLASS_NO_OPTIONAL_MEMBERS
+    JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub, nullptr,
+    nullptr, nullptr, nullptr,
+    JS_GlobalObjectTraceHook
 };
 
 bool WriteFile(const std::string &filePath, void *data, uint32_t length) {
@@ -86,14 +87,12 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
         return false;
     
     std::cout << "Input file: " << inputFilePath << std::endl;
-    JSRuntime * runtime = JS_NewRuntime(10 * 1024 * 1024, JS_NO_HELPER_THREADS);
+    JSRuntime * runtime = JS_NewRuntime(10 * 1024 * 1024);
 
     JSContext *cx = JS_NewContext(runtime, 10240);
     // Removed in Firefox v27
     //JS_SetOptions(cx, JSOPTION_TYPE_INFERENCE);
-    JS::ContextOptionsRef(cx).setTypeInference(true);
-    JS::ContextOptionsRef(cx).setIon(true);
-    JS::ContextOptionsRef(cx).setBaseline(true);
+    JS::RuntimeOptionsRef(runtime).setIon(true).setBaseline(true).setAsmJS(true).setNativeRegExp(true);
     
     JS::CompartmentOptions options;
     options.setVersion(JSVERSION_LATEST);
@@ -113,10 +112,10 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
             
             JS::CompileOptions options(cx);
             options.setUTF8(true);
-            options.setSourcePolicy(JS::CompileOptions::NO_SOURCE);
             std::cout << "Compiling ..." << std::endl;
             
-            JS::RootedScript script(cx, JS::Compile(cx, global, options, inputFilePath.c_str()));
+            JS::RootedScript script(cx);
+            JS::Compile(cx, global, options, inputFilePath.c_str(), &script);
             
             if (script) {
                 void *data = NULL;
