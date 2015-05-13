@@ -112,6 +112,7 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
             
             JS::CompileOptions options(cx);
             options.setUTF8(true);
+            options.setSourceIsLazy(true);
             std::cout << "Compiling ..." << std::endl;
             
             JS::RootedScript script(cx);
