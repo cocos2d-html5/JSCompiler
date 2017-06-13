@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		4BE2FD481AB2929900E0B49F /* libjs_static.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 4BE2FD471AB2929900E0B49F /* libjs_static.a */; };
 		6579750B172D6EBE000DDA7A /* main.cpp in Sources */ = {isa = PBXBuildFile; fileRef = 6579750A172D6EBE000DDA7A /* main.cpp */; };
+		BAC53D001EEEA6C5004FB51F /* libmozglue.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BAC53CFF1EEEA6C5004FB51F /* libmozglue.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -122,6 +123,7 @@
 		4BE2FD471AB2929900E0B49F /* libjs_static.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libjs_static.a; sourceTree = "<group>"; };
 		65797507172D6EBE000DDA7A /* jsbcc */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = jsbcc; sourceTree = BUILT_PRODUCTS_DIR; };
 		6579750A172D6EBE000DDA7A /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
+		BAC53CFF1EEEA6C5004FB51F /* libmozglue.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libmozglue.a; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -130,6 +132,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				4BE2FD481AB2929900E0B49F /* libjs_static.a in Frameworks */,
+				BAC53D001EEEA6C5004FB51F /* libmozglue.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -279,6 +282,7 @@
 			isa = PBXGroup;
 			children = (
 				4BE2FD471AB2929900E0B49F /* libjs_static.a */,
+				BAC53CFF1EEEA6C5004FB51F /* libmozglue.a */,
 			);
 			path = lib;
 			sourceTree = "<group>";

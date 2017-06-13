@@ -21,6 +21,7 @@
 
 #include "jsapi.h"
 #include "jsfriendapi.h"
+#include "js/Initialization.h"
 
 #ifdef WIN32
 const char *USAGE = "Usage: jsbcc input_js_file [byte_code_file]";
@@ -36,19 +37,34 @@ enum ErrorCode {
     EC_ERROR = 1
 };
 
-void Finalize(JSFreeOp *freeOp, JSObject *obj) {
+void ReportError(JSContext *cx, JSErrorReport *report) {
+    
+    if (cx && report)
+    {
+        std::string fileName = report->filename ? report->filename : "<no filename=\"filename\">";
+        int32_t lineno = report->lineno;
+        std::string msg = report->message().c_str();
+        
+        std::cerr << "Error! " << fileName.c_str() << " line:" << lineno << " msg: " << msg.c_str() << std::endl;
+        
+        // Should clear pending exception, otherwise it will trigger infinite loop
+        if (JS_IsExceptionPending(cx)) {
+            JS_ClearPendingException(cx);
+        }
+    }
+    
 }
 
-void ReportError(JSContext *cx, const char *message, JSErrorReport *report) {
-    std::cerr << "Error! " << message <<  std::endl;
-}
-
-JSClass GlobalClass = {
-    "global", JSCLASS_GLOBAL_FLAGS,
-    JS_PropertyStub, JS_DeletePropertyStub, JS_PropertyStub, JS_StrictPropertyStub,
-    JS_EnumerateStub, JS_ResolveStub, JS_ConvertStub, nullptr,
+static const JSClassOps global_classOps = {
+    nullptr, nullptr, nullptr, nullptr,
     nullptr, nullptr, nullptr,
-    JS_GlobalObjectTraceHook
+    nullptr,
+    nullptr, nullptr, nullptr, JS_GlobalObjectTraceHook
+};
+static const JSClass global_class = {
+    "global",
+    JSCLASS_GLOBAL_FLAGS,
+    &global_classOps
 };
 
 bool WriteFile(const std::string &filePath, void *data, uint32_t length) {
@@ -84,73 +100,91 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
     }
     
     if (!JS_Init())
+    {
         return false;
-    
-    std::cout << "Input file: " << inputFilePath << std::endl;
-    JSRuntime * runtime = JS_NewRuntime(10 * 1024 * 1024);
+    }
 
-    JSContext *cx = JS_NewContext(runtime, 10240);
-    // Removed in Firefox v27
-    //JS_SetOptions(cx, JSOPTION_TYPE_INFERENCE);
-    JS::RuntimeOptionsRef(runtime).setIon(true).setBaseline(true).setAsmJS(true).setNativeRegExp(true);
+    JSContext *cx = JS_NewContext(JS::DefaultHeapMaxBytes);
+    if (nullptr == cx)
+    {
+        return false;
+    }
+    
+    JS_SetGCParameter(cx, JSGC_MAX_BYTES, 0xffffffff);
+    JS_SetGCParameter(cx, JSGC_MODE, JSGC_MODE_INCREMENTAL);
+    JS_SetNativeStackQuota(cx, 500000);
+    JS_SetFutexCanWait( cx);
+    JS_SetDefaultLocale(cx, "UTF-8");
+    JS::SetWarningReporter(cx, &ReportError);
+    
+    if (!JS::InitSelfHostedCode(cx))
+    {
+        return false;
+    }
+    
+    JS_BeginRequest(cx);
     
     JS::CompartmentOptions options;
-    options.setVersion(JSVERSION_LATEST);
+    options.behaviors().setVersion(JSVERSION_LATEST);
+    options.creationOptions().setSharedMemoryAndAtomicsEnabled(true);
     
-    JS::RootedObject global(cx, JS_NewGlobalObject(cx, &GlobalClass, NULL, JS::DontFireOnNewGlobalHook, options));
+    JS::ContextOptionsRef(cx)
+        .setIon(true)
+        .setBaseline(true)
+        .setAsmJS(true)
+        .setNativeRegExp(true);
     
-    JS_SetErrorReporter(cx, &ReportError);
+    JS::RootedObject global(cx, JS_NewGlobalObject(cx, &global_class, nullptr, JS::DontFireOnNewGlobalHook, options));
     
-    {
-        JSAutoCompartment ac(cx, global);
+    JSCompartment *oldCompartment = JS_EnterCompartment(cx, global);
     
-        if (JS_InitStandardClasses(cx, global)) {
+    std::cout << "Input file: " << inputFilePath << std::endl;
+    
+    if (JS_InitStandardClasses(cx, global)) {
+        
+        JS_FireOnNewGlobalObject(cx, global);
+        
+        JS::CompileOptions op(cx);
+        op.setUTF8(true);
+        op.setSourceIsLazy(true);
+        op.setFileAndLine(inputFilePath.c_str(), 1);
+        
+        std::cout << "Compiling ..." << std::endl;
+        
+        JS::RootedScript script(cx);
+        bool ok = JS::Compile(cx, op, inputFilePath.c_str(), &script);
+        
+        if (ok) {
+            std::cout << "Encoding ..." << std::endl;
             
-            JS_InitReflect(cx, global);
+            JS::TranscodeBuffer buffer;
+            JS::TranscodeResult encodeResult = JS::EncodeScript(cx, buffer, script);
             
-            JS_FireOnNewGlobalObject(cx, global);
-            
-            JS::CompileOptions options(cx);
-            options.setUTF8(true);
-            options.setSourceIsLazy(true);
-            std::cout << "Compiling ..." << std::endl;
-            
-            JS::RootedScript script(cx);
-            JS::Compile(cx, global, options, inputFilePath.c_str(), &script);
-            
-            if (script) {
-                void *data = NULL;
-                uint32_t length = 0;
-                std::cout << "Encoding ..." << std::endl;
-                data = JS_EncodeScript(cx, script, &length);
-                
-                if (data) {
-                    if (WriteFile(ofp, data, length)) {
-                        std::cout << "Done! " << "Output file: " << ofp << std::endl;
-                        result = true;
-                    }
-                }
-            }
-            else
+            if (encodeResult == JS::TranscodeResult::TranscodeResult_Ok)
             {
-                std::cout << "Compiled " << inputFilePath << " fails!" << std::endl;
+                if (WriteFile(ofp, buffer.extractRawBuffer(), (uint32_t)buffer.length())) {
+                    std::cout << "Done! " << "Output file: " << ofp << std::endl;
+                    result = true;
+                }
             }
         }
         else
         {
-            std::cout << "JS_InitStandardClasses failed! " << std::endl;
+            std::cout << "Compiled " << inputFilePath << " fails!" << std::endl;
         }
     }
-    if (cx) {
-        JS_DestroyContext(cx);
-        cx = NULL;
-    }
-    if (runtime) {
-        JS_DestroyRuntime(runtime);
-        runtime = NULL;
+    else
+    {
+        std::cout << "JS_InitStandardClasses failed! " << std::endl;
     }
     
-    JS_ShutDown();
+    if (cx) {
+        JS_LeaveCompartment(cx, oldCompartment);
+        JS_EndRequest(cx);
+        JS_DestroyContext(cx);
+        JS_ShutDown();
+        cx = nullptr;
+    }
     
     return result;
 }
