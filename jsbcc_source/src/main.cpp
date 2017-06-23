@@ -37,22 +37,36 @@ enum ErrorCode {
     EC_ERROR = 1
 };
 
-void ReportError(JSContext *cx, JSErrorReport *report) {
-    
-    if (cx && report)
+void reportError(JSContext *cx)
+{
+    JS::RootedValue err(cx);
+    if (JS_GetPendingException(cx, &err) && err.isObject())
     {
+        JS_ClearPendingException(cx);
+        
+        JS::RootedObject errObj(cx, err.toObjectOrNull());
+        JSErrorReport *report = JS_ErrorFromException(cx, errObj);
         std::string fileName = report->filename ? report->filename : "<no filename=\"filename\">";
         int32_t lineno = report->lineno;
         std::string msg = report->message().c_str();
-        
         std::cerr << "Error! " << fileName.c_str() << " line:" << lineno << " msg: " << msg.c_str() << std::endl;
         
-        // Should clear pending exception, otherwise it will trigger infinite loop
-        if (JS_IsExceptionPending(cx)) {
-            JS_ClearPendingException(cx);
+        JS::RootedValue stack(cx);
+        if (JS_GetProperty(cx, errObj, "stack", &stack) && stack.isString())
+        {
+            JS::RootedString jsstackStr(cx, stack.toString());
+            char *stackStr = JS_EncodeStringToUTF8(cx, jsstackStr);
+            std::cerr << "Stack: " << stackStr << std::endl;
         }
     }
-    
+}
+
+static bool
+GetBuildId(JS::BuildIdCharVector* buildId)
+{
+    const char buildid[] = "cocos_xdr";
+    bool ok = buildId->append(buildid, strlen(buildid));
+    return ok;
 }
 
 static const JSClassOps global_classOps = {
@@ -115,7 +129,6 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
     JS_SetNativeStackQuota(cx, 500000);
     JS_SetFutexCanWait( cx);
     JS_SetDefaultLocale(cx, "UTF-8");
-    JS::SetWarningReporter(cx, &ReportError);
     
     if (!JS::InitSelfHostedCode(cx))
     {
@@ -144,6 +157,8 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
         
         JS_FireOnNewGlobalObject(cx, global);
         
+        JS::SetBuildIdOp(cx, GetBuildId);
+        
         JS::CompileOptions op(cx);
         op.setUTF8(true);
         op.setSourceIsLazy(true);
@@ -162,14 +177,18 @@ bool CompileFile(const std::string &inputFilePath, const std::string &outputFile
             
             if (encodeResult == JS::TranscodeResult::TranscodeResult_Ok)
             {
-                if (WriteFile(ofp, buffer.extractRawBuffer(), (uint32_t)buffer.length())) {
+                uint32_t length = (uint32_t)buffer.length();
+                if (WriteFile(ofp, buffer.extractRawBuffer(), length)) {
                     std::cout << "Done! " << "Output file: " << ofp << std::endl;
                     result = true;
                 }
             }
         }
-        else
+        if (!result)
         {
+            if (JS_IsExceptionPending(cx)) {
+                reportError(cx);
+            }
             std::cout << "Compiled " << inputFilePath << " fails!" << std::endl;
         }
     }
@@ -197,7 +216,7 @@ int main(int argc, const char * argv[])
         return EC_ERROR;
     }
     else {
-        if (1 < argc) {            
+        if (1 < argc) {
             if (std::string(argv[1]) == "-p") { // pipe mode
                 fd_set fds;
                 FD_ZERO (&fds);
